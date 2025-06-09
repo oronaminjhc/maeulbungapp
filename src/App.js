@@ -77,7 +77,7 @@ const styles = {
   input: "shadow-inner appearance-none border-2 border-gray-200 rounded-lg w-full py-4 px-4 text-gray-800 leading-tight focus:outline-none focus:border-[#BB2649] mb-4 text-xl",
   label: "block text-gray-800 text-2xl font-bold mb-2",
   modalOverlay: "fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50",
-  modalContent: "bg-white p-8 rounded-2xl shadow-2xl w-full max-w-lg text-lg",
+  modalContent: "bg-white p-8 rounded-2xl shadow-2xl w-full max-w-lg text-lg relative",
   splashScreen: `w-screen h-screen flex flex-col justify-center items-center bg-white`,
   splashTitle: `text-5xl font-bold text-[${VIVA_MAGENTA}]`,
   bottomNav: "fixed bottom-0 left-0 right-0 h-20 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] flex justify-around items-center z-20",
@@ -113,7 +113,7 @@ function SplashScreen({ error }) {
 }
 
 // 달력
-function CalendarComponent({ village, refreshKey, showMaeulbung }) {
+function CalendarComponent({ village, refreshKey, onDayClick }) {
     const today = new Date();
     const [currentDate, setCurrentDate] = useState(today);
     const [events, setEvents] = useState({});
@@ -130,7 +130,6 @@ function CalendarComponent({ village, refreshKey, showMaeulbung }) {
         const fetchedEvents = {};
         snapshot.forEach(doc => {
             const data = doc.data();
-            if (data.type === 'maeulbung' && !showMaeulbung) return;
             const eventDate = data.date.toDate();
             if (eventDate.getFullYear() === year && eventDate.getMonth() === month) {
                 const day = eventDate.getDate();
@@ -141,7 +140,7 @@ function CalendarComponent({ village, refreshKey, showMaeulbung }) {
         setEvents(fetchedEvents);
       };
       fetchEvents();
-    }, [village, month, year, refreshKey, showMaeulbung]);
+    }, [village, month, year, refreshKey]);
 
     const firstDayOfMonth = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -154,15 +153,13 @@ function CalendarComponent({ village, refreshKey, showMaeulbung }) {
         const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
         const eventData = events[day];
         const hasEvent = !!eventData;
-        const isMaeulbungEvent = hasEvent && eventData.some(e => e.type === 'maeulbung');
         
         let dayStyle = '';
         if (isToday) dayStyle = `bg-[${VIVA_MAGENTA}] text-white`;
-        else if (isMaeulbungEvent) dayStyle = 'border-2 border-green-400';
         else if (hasEvent) dayStyle = 'border-2 border-blue-400';
 
         days.push(
-            <div key={day} className="text-center p-1">
+            <div key={day} className="text-center p-1 cursor-pointer" onClick={() => onDayClick(new Date(year, month, day))}>
                 <div className={`w-10 h-10 mx-auto flex items-center justify-center rounded-full text-lg ${dayStyle}`}>
                     {day}
                 </div>
@@ -285,6 +282,7 @@ function App() {
         villagePassword: <VillagePasswordScreen village={context.village} onConfirm={() => { saveAppState({ eupMyeon: context.village.eupMyeon, village: context.village.name, isMember: true }); navigate('registration'); }} setModal={setModal} />,
         registration: <RegistrationScreen onRegister={(name) => { saveAppState({ name }); navigate('dashboard'); }} />,
         dashboard: <DashboardScreen navigate={navigate} appState={currentAppState} />,
+        dayDetail: <DayDetailScreen navigate={navigate} appState={currentAppState} date={context.date} setModal={setModal} />,
         settings: <SettingsScreen navigate={navigate} requestAdmin={requestAdmin} isAdmin={appState.isAdmin} />,
         calendarManagement: <CalendarManagementScreen navigate={navigate} appState={currentAppState} setModal={setModal} />,
         notices: <NoticesScreen navigate={navigate} appState={currentAppState} requestAdmin={requestAdmin} setModal={setModal} />,
@@ -304,6 +302,7 @@ function App() {
       {modal.show && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
+            <button onClick={() => setModal({ show: false })} className="absolute top-4 right-4 text-2xl text-gray-500 hover:text-gray-800">&times;</button>
             {modal.component ? modal.component : (
               <>
                 <p className="font-bold text-xl mb-6">{modal.message || '관리자 권한이 필요합니다.'}</p>
@@ -330,20 +329,21 @@ function App() {
   );
 }
 
+// ... (EupMyeonSelectionScreen, VillageSelectionScreen, VillagePasswordScreen, RegistrationScreen remain the same) ...
 function EupMyeonSelectionScreen({ onSelect }) {
-  return (
-    <div className={styles.card}>
-      <h1 className={styles.title}>{APP_NAME}</h1>
-      <h2 className={styles.subtitle}>읍/면을 선택해주세요</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {buanTowns.map(town => (
-          <button key={town.eupMyeon} onClick={() => onSelect(town.eupMyeon)} className={styles.button}>{town.eupMyeon}</button>
-        ))}
+    return (
+      <div className={styles.card}>
+        <h1 className={styles.title}>{APP_NAME}</h1>
+        <h2 className={styles.subtitle}>읍/면을 선택해주세요</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {buanTowns.map(town => (
+            <button key={town.eupMyeon} onClick={() => onSelect(town.eupMyeon)} className={styles.button}>{town.eupMyeon}</button>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
 }
-
+  
 function VillageSelectionScreen({ eupMyeon, onSelect, onBack }) {
     const townData = buanTowns.find(t => t.eupMyeon === eupMyeon);
     const villages = townData ? townData.villages : [];
@@ -360,7 +360,7 @@ function VillageSelectionScreen({ eupMyeon, onSelect, onBack }) {
         </div>
     );
 }
-
+  
 function VillagePasswordScreen({ village, onConfirm, setModal }) {
     const [password, setPassword] = useState('');
     const handleConfirm = () => {
@@ -381,7 +381,7 @@ function VillagePasswordScreen({ village, onConfirm, setModal }) {
         </div>
     );
 }
-
+  
 function RegistrationScreen({ onRegister }) {
     const [name, setName] = useState('');
     return (
@@ -395,30 +395,27 @@ function RegistrationScreen({ onRegister }) {
         </div>
     );
 }
+  
+// --- 대시보드 및 메뉴 화면 ---
 
 function DashboardScreen({ navigate, appState }) {
-    const [showMaeulbung, setShowMaeulbung] = useState(true);
-
     const dashboardSections = [
         { title: "이장님 공지", screen: 'notices', collection: 'notices' },
         { title: "마을벙", screen: 'maeulbung', collection: 'maeulbungs' },
         { title: "프로그램 소식", screen: 'programs', collection: 'programNews' },
         { title: "마을 일자리", screen: 'jobs', collection: 'jobs' },
     ];
-
+    
     return (
         <div className="p-4">
             <h1 className="text-4xl font-bold text-gray-800 mb-6">{appState.village}</h1>
             
-            <div className={styles.dashboardSection}>
-                 <div className={styles.dashboardSectionHeader}>
-                    <h2 className="text-2xl font-bold text-gray-800">마을 주요 일정</h2>
-                 </div>
-                <CalendarComponent village={appState.village} showMaeulbung={showMaeulbung} />
-                <button onClick={() => setShowMaeulbung(!showMaeulbung)} className={`${styles.button} !text-lg !py-2 !bg-green-600 hover:!bg-green-800 mt-4`}>
-                    {showMaeulbung ? '마을벙 일정 숨기기' : '마을벙 일정 보이기'}
-                </button>
-            </div>
+            <DashboardSection
+                title="마을 주요 일정"
+                isCalendar={true}
+                village={appState.village}
+                onDayClick={(date) => navigate('dayDetail', { date })}
+            />
             
             {dashboardSections.map(section => (
                 <DashboardSection
@@ -431,6 +428,17 @@ function DashboardScreen({ navigate, appState }) {
             ))}
         </div>
     );
+}
+
+function DayDetailScreen({ navigate, appState, date, setModal }) {
+     // This component needs to be fully implemented.
+     return (
+        <div className="p-4">
+            <button onClick={() => navigate('dashboard')} className="text-left mb-4 text-gray-600 font-bold"> &lt; 뒤로가기</button>
+            <h1 className={styles.title}>{date.toLocaleDateString()} 일정</h1>
+            <p>상세 일정 기능 구현이 필요합니다.</p>
+        </div>
+     )
 }
 
 function SettingsScreen({ navigate, requestAdmin, isAdmin }) {
@@ -525,6 +533,7 @@ function CalendarManagementScreen({ navigate, appState, setModal }) {
 
     return (
         <div className="p-4">
+            <button onClick={() => navigate('settings')} className="text-left mb-4 text-gray-600 font-bold"> &lt; 설정</button>
             <h1 className={styles.title}>마을 일정 관리</h1>
             <div className={styles.card}>
                 <button onClick={handleAddEvent} className={`${styles.button} !bg-blue-600 hover:!bg-blue-800 mb-6`}>새 일정 추가하기</button>
@@ -545,7 +554,7 @@ function CalendarManagementScreen({ navigate, appState, setModal }) {
 }
 
 
-function ApplicantListScreen() {
+function ApplicantListScreen({ navigate }) {
     const [applicants, setApplicants] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -569,6 +578,7 @@ function ApplicantListScreen() {
 
     return (
         <div className="p-4">
+            <button onClick={() => navigate('settings')} className="text-left mb-4 text-gray-600 font-bold"> &lt; 설정</button>
             <h1 className={styles.title}>신청자 목록</h1>
             <div className={styles.card}>
             {loading ? <p>불러오는 중...</p> : (
@@ -590,11 +600,12 @@ function ApplicantListScreen() {
     )
 }
 
-function DashboardSection({ title, onMore, village, collectionName }) {
+function DashboardSection({ title, onMore, village, collectionName, isCalendar, onDayClick }) {
     const [latestPost, setLatestPost] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        if (isCalendar) return;
         const fetchLatestPost = async () => {
             if (!village) return;
             setLoading(true);
@@ -618,15 +629,18 @@ function DashboardSection({ title, onMore, village, collectionName }) {
             setLoading(false);
         };
         fetchLatestPost();
-    }, [collectionName, village]);
+    }, [collectionName, village, isCalendar]);
 
     return (
         <div className={styles.dashboardSection}>
             <div className={styles.dashboardSectionHeader}>
                 <h2 className={styles.dashboardSectionTitle}>{title}</h2>
-                <button onClick={onMore} className={styles.dashboardMoreButton}>더보기 &gt;</button>
+                {onMore && <button onClick={onMore} className={styles.dashboardMoreButton}>더보기 &gt;</button>}
             </div>
-            {loading ? <p className="text-gray-500">불러오는 중...</p> : 
+            {isCalendar ? (
+                <CalendarComponent village={village} onDayClick={onDayClick} />
+            ) : (
+                loading ? <p className="text-gray-500">불러오는 중...</p> : 
                 latestPost ? (
                     <div className={styles.recentPostItem} onClick={onMore}>
                         <h3 className="font-bold truncate">{latestPost.title}</h3>
@@ -635,7 +649,7 @@ function DashboardSection({ title, onMore, village, collectionName }) {
                 ) : (
                     <p className="text-gray-500">최신 글이 없습니다.</p>
                 )
-            }
+            )}
         </div>
     );
 }
@@ -886,16 +900,6 @@ function ProgramNewsScreen({ navigate, appState, requestAdmin, setModal }) {
         fetchPrograms();
     }, [filter, key]);
     
-    const handleAddPost = () => {
-      requestAdmin(() => navigate('addPost', { 
-          collectionName: 'programNews', 
-          postType: 'program', 
-          title: '새 프로그램 소식 작성', 
-          returnScreen: 'programs',
-          onPostAdded: () => setKey(k => k + 1)
-      }));
-    };
-
     return (
         <div className="p-4">
             <h1 className={styles.title}>프로그램 소식</h1>
