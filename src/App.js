@@ -78,6 +78,7 @@ const styles = {
   label: "block text-gray-800 text-2xl font-bold mb-2",
   modalOverlay: "fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50",
   modalContent: "bg-white p-8 rounded-2xl shadow-2xl w-full max-w-lg text-lg relative",
+  floatingButton: `fixed bottom-24 right-6 bg-[${VIVA_MAGENTA}] text-white w-16 h-16 rounded-full flex items-center justify-center shadow-xl text-3xl z-10`,
   splashScreen: `w-screen h-screen flex flex-col justify-center items-center bg-white`,
   splashTitle: `text-5xl font-bold text-[${VIVA_MAGENTA}]`,
   bottomNav: "fixed bottom-0 left-0 right-0 h-20 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] flex justify-around items-center z-20",
@@ -153,9 +154,11 @@ function CalendarComponent({ village, refreshKey, onDayClick }) {
         const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
         const eventData = events[day];
         const hasEvent = !!eventData;
+        const isMaeulbungEvent = hasEvent && eventData.some(e => e.type === 'maeulbung');
         
         let dayStyle = '';
         if (isToday) dayStyle = `bg-[${VIVA_MAGENTA}] text-white`;
+        else if (isMaeulbungEvent) dayStyle = 'border-2 border-green-400';
         else if (hasEvent) dayStyle = 'border-2 border-blue-400';
 
         days.push(
@@ -431,14 +434,112 @@ function DashboardScreen({ navigate, appState }) {
 }
 
 function DayDetailScreen({ navigate, appState, date, setModal }) {
-     // This component needs to be fully implemented.
-     return (
-        <div className="p-4">
-            <button onClick={() => navigate('dashboard')} className="text-left mb-4 text-gray-600 font-bold"> &lt; 뒤로가기</button>
-            <h1 className={styles.title}>{date.toLocaleDateString()} 일정</h1>
-            <p>상세 일정 기능 구현이 필요합니다.</p>
-        </div>
-     )
+     const [events, setEvents] = useState([]);
+     const [loading, setLoading] = useState(true);
+     const [refreshKey, setRefreshKey] = useState(0);
+ 
+     const formattedDate = date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+ 
+     useEffect(() => {
+         const fetchEventsForDay = async () => {
+             if (!appState.userId || !appState.village) return;
+             setLoading(true);
+             
+             const startOfDay = new Date(date);
+             startOfDay.setHours(0, 0, 0, 0);
+             const endOfDay = new Date(date);
+             endOfDay.setHours(23, 59, 59, 999);
+ 
+             const publicEventsRef = collection(db, `artifacts/${appId}/public/data/calendarEvents`);
+             const publicQuery = query(publicEventsRef,
+                 where("village", "==", appState.village),
+                 where("date", ">=", Timestamp.fromDate(startOfDay)),
+                 where("date", "<=", Timestamp.fromDate(endOfDay))
+             );
+             
+             const personalEventsRef = collection(db, `artifacts/${appId}/users/${appState.userId}/personalEvents`);
+             const personalQuery = query(personalEventsRef,
+                 where("date", ">=", Timestamp.fromDate(startOfDay)),
+                 where("date", "<=", Timestamp.fromDate(endOfDay))
+             );
+ 
+             const [publicSnapshot, personalSnapshot] = await Promise.all([
+                 getDocs(publicQuery),
+                 getDocs(personalQuery)
+             ]);
+ 
+             const allEvents = [];
+             publicSnapshot.forEach(doc => allEvents.push({ id: doc.id, ...doc.data() }));
+             personalSnapshot.forEach(doc => allEvents.push({ id: doc.id, ...doc.data() }));
+ 
+             allEvents.sort((a,b) => a.date.toDate() - b.date.toDate());
+             setEvents(allEvents);
+             setLoading(false);
+         };
+         fetchEventsForDay();
+     }, [appState.userId, appState.village, date, refreshKey]);
+     
+     const handleAddPersonalEvent = () => {
+         const FormComponent = ({ closeModal }) => {
+             const [title, setTitle] = useState('');
+             const handleSubmit = async (e) => {
+                 e.preventDefault();
+                 if (!title) return;
+                 const personalEventsRef = collection(db, `artifacts/${appId}/users/${appState.userId}/personalEvents`);
+                 await addDoc(personalEventsRef, {
+                     title,
+                     date: Timestamp.fromDate(date),
+                     type: 'personal',
+                     createdAt: Timestamp.now(),
+                 });
+                 setModal({ show: true, message: '개인 일정이 추가되었습니다.' });
+                 setRefreshKey(k => k + 1);
+                 closeModal();
+             };
+             return (
+                  <form onSubmit={handleSubmit}>
+                     <h2 className={styles.subtitle}>내 일정 추가</h2>
+                     <label className={styles.label}>일정 내용</label>
+                     <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className={styles.input} required />
+                     <div className="flex gap-4 mt-4">
+                         <button type="button" onClick={closeModal} className={styles.secondaryButton}>취소</button>
+                         <button type="submit" className={styles.button}>추가</button>
+                     </div>
+                 </form>
+             )
+         };
+         setModal({ show: true, component: <FormComponent closeModal={() => setModal({show: false})} /> });
+     };
+ 
+     const getEventStyle = (type) => {
+         switch (type) {
+             case 'admin': return "border-l-8 border-blue-500";
+             case 'maeulbung': return "border-l-8 border-green-500";
+             case 'personal': return "border-l-8 border-orange-500";
+             default: return "border-l-8 border-gray-300";
+         }
+     }
+ 
+      return (
+         <div className="p-4">
+             <button onClick={() => navigate('dashboard')} className="text-left mb-4 text-gray-600 font-bold"> &lt; 달력으로 돌아가기</button>
+             <div className={styles.card}>
+                 <h1 className={styles.subtitle}>{formattedDate}</h1>
+                 <div className="space-y-3 mt-4">
+                     {loading ? <p>일정을 불러오는 중...</p> : 
+                         events.length > 0 ? (
+                             events.map(event => (
+                                 <div key={event.id} className={`p-4 rounded-lg bg-gray-50 ${getEventStyle(event.type)}`}>
+                                     <p className="font-bold text-xl">{event.title}</p>
+                                 </div>
+                             ))
+                         ) : <p className="text-gray-500">이 날짜에는 등록된 일정이 없습니다.</p>
+                     }
+                 </div>
+                 <button onClick={handleAddPersonalEvent} className={`${styles.button} !bg-blue-600 hover:!bg-blue-800 mt-6`}>내 일정 추가하기</button>
+             </div>
+         </div>
+      )
 }
 
 function SettingsScreen({ navigate, requestAdmin, isAdmin }) {
@@ -469,7 +570,7 @@ function CalendarManagementScreen({ navigate, appState, setModal }) {
         const fetchAllEvents = async () => {
             if (!appState.village) return;
             const eventsCollection = `artifacts/${appId}/public/data/calendarEvents`;
-            const q = query(collection(db, eventsCollection), where("village", "==", appState.village));
+            const q = query(collection(db, eventsCollection), where("village", "==", appState.village), where("type", "==", "admin"));
             const snapshot = await getDocs(q);
             const eventList = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
             eventList.sort((a,b) => b.date.toDate() - a.date.toDate());
@@ -716,7 +817,16 @@ function PostItem({ post, postType, appState, requestAdmin, collectionName, refr
       await updateDoc(postRef, {
         attendees: arrayUnion(userId)
       });
-      setModal({ show: true, message: "참석 처리되었습니다!" });
+       const eventDate = post.eventDate.toDate();
+       const personalEventsRef = collection(db, `artifacts/${appId}/users/${userId}/personalEvents`);
+       await addDoc(personalEventsRef, {
+           title: `[참석] ${post.title}`,
+           date: Timestamp.fromDate(eventDate),
+           type: 'maeulbung',
+           relatedPostId: post.id,
+           createdAt: Timestamp.now(),
+       });
+      setModal({ show: true, message: "참석 처리 및 내 일정에 추가되었습니다!" });
       refreshList(); 
     } catch (error) {
       console.error("Error attending:", error);
